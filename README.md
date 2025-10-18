@@ -98,7 +98,7 @@ Você pode personalizar o funcionamento do curador modificando as variáveis def
 
 Ajuste estes parâmetros para alterar o tamanho da playlist e a distribuição entre músicas conhecidas e descobertas.
 
-Variável	              O que controla?	                                                                                    Padrão
-TOTAL_TRACKS	          Quantidade total de músicas na playlist.	                                                            50
-KNOWN_ARTIST_PERCENT	  Proporção de faixas de artistas que você já ouve. Controla a regra 70/30.	                            0.7 (70%)
-MAX_PER_ARTIST	          Limite máximo de músicas de um mesmo artista para garantir a diversidade.	                            5
+Variável	O que controla?	Padrão
+TOTAL_TRACKS	Quantidade total de músicas na playlist.	50
+KNOWN_ARTIST_PERCENT	Proporção de faixas de artistas que você já ouve. Controla a regra 70/30 (0.7 = 70%).	0.7 (70%)
+MAX_PER_ARTIST	Limite máximo de músicas de um mesmo artista para garantir a diversidade.	5
