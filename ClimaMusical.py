@@ -154,7 +154,7 @@ def generate_recommendations(sp, gemini_result, top_artists_ids):
     known_pool_uris = list(set(known_pool_uris)) 
 
 
-    # --- B. GERAÇÃO DO POOL NOVO (30% - De Busca por Gêneros) ---
+    # --- B. GERAÇÃO DO POOL (30% - De Busca por Gêneros) ---
     new_pool_uris = []
     
     if seed_genres_list:
@@ -180,14 +180,14 @@ def generate_recommendations(sp, gemini_result, top_artists_ids):
     
     # 1. Combina 70% Conhecido + 30% Novo
     # Alterna entre os pools para garantir a distribuição
-    for i in range(TOTAL_TRACKS * 2): # Curadoria de 100 slots para garantir o limite de 50
+    for i in range(TOTAL_TRACKS * 2):
         if i < KNOWN_TRACKS_COUNT and known_pool_uris:
             tracks_to_curate.append(known_pool_uris.pop())
         elif i < NEW_TRACKS_COUNT and new_pool_uris:
              tracks_to_curate.append(new_pool_uris.pop())
-        elif known_pool_uris: # Usa o restante do conhecido se faltar novo
+        elif known_pool_uris:
              tracks_to_curate.append(known_pool_uris.pop())
-        elif new_pool_uris: # Usa o restante do novo se faltar conhecido
+        elif new_pool_uris:
              tracks_to_curate.append(new_pool_uris.pop())
 
 
@@ -307,4 +307,5 @@ def main():
 
 
 if __name__ == "__main__":
+
     main()
