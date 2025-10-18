@@ -56,7 +56,8 @@ Para rodar o **SpotWeather-AI**, você precisa obter quatro chaves de API e conf
 
 ## 🔑 Configuração das APIs e Chaves Secretas
 
-Você deve criar um arquivo chamado **`.env`** na raiz do projeto (`SpotWeather-AI/.env`) para armazenar todas as chaves.
+📄 Conteúdo do Arquivo .env (Configuração)
+Crie um arquivo chamado .env na pasta raiz do seu projeto e cole o seguinte conteúdo, substituindo os valores entre aspas pelo seu respectivo token ou chave.
 
 ### A. Chaves do Spotify
 
