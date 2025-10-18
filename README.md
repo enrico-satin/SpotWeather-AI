@@ -93,9 +93,14 @@ CITY_QUERY="Nome da sua cidade,BR"  # Ex: "Sao Paulo,BR"
 
 ```
 
-🛠️ Modificações e Customização
-Você pode personalizar o funcionamento do curador modificando as variáveis definidas no início da função generate_recommendations dentro do arquivo ClimaMusical.py.
+### 🛠️ Modificações e Customização
+
+Você pode personalizar o funcionamento do curador modificando as variáveis definidas no início da função **`generate_recommendations`** dentro do arquivo `ClimaMusical.py`.
 
 Ajuste estes parâmetros para alterar o tamanho da playlist e a distribuição entre músicas conhecidas e descobertas.
 
-<img width="1068" height="89" alt="image" src="https://github.com/user-attachments/assets/ed86be22-0426-40a4-b06a-199b6d080ae4" />
+| Variável | O que controla? | Padrão |
+| :--- | :--- | :--- |
+| **`TOTAL_TRACKS`** | Quantidade total de músicas na playlist. | `50` |
+| **`KNOWN_ARTIST_PERCENT`** | Proporção de faixas de artistas que você já ouve. Controla a regra **70/30** (0.7 = 70%). | `0.7` (70%) |
+| **`MAX_PER_ARTIST`** | Limite máximo de músicas de um mesmo artista para garantir a diversidade. | `5` |
