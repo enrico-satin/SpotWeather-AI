@@ -9,26 +9,27 @@ O Gemini atua como curador musical: recebe o clima atual e informações sobre a
 - Consulta o clima atual de uma cidade usando a API do OpenWeatherMap.
 - Consulta artistas e gêneros relacionados ao perfil musical do usuário no Spotify.
 - Usa o Gemini para sugerir gêneros e um artista de referência com base no clima e nas preferências musicais.
-- Busca faixas no Spotify e aplica regras de diversidade, incluindo um limite pretendido de músicas por artista.
+- Busca faixas no Spotify e tenta equilibrar familiaridade e descoberta, respeitando um limite de faixas por artista.
 - Cria uma playlist no Spotify e tenta iniciar sua reprodução.
+- Inclui testes automatizados para a lógica de seleção de faixas.
 
-> **Observação:** a distribuição 70/30 é a regra pretendida pelo projeto. A seleção depende dos resultados disponíveis nas APIs e pode não produzir exatamente 50 faixas nem uma proporção exata em todas as execuções.
+> **Observação:** a proporção 70/30 é uma meta de curadoria. A quantidade e a distribuição finais dependem das faixas retornadas pelas APIs e podem variar.
 
 ## Tecnologias
 
-- Python
+- Python 3.10+
 - Spotify Web API, por meio de [Spotipy](https://spotipy.readthedocs.io/)
 - Gemini API, por meio do SDK `google-genai`
 - OpenWeatherMap API
-- `requests` e `python-dotenv`
+- `requests`, `python-dotenv` e `unittest`
 
 ## Requisitos
 
 - Python 3.10 ou superior
-- Conta de desenvolvedor do Spotify e um aplicativo configurado no [Spotify Developer Dashboard](https://developer.spotify.com/dashboard/)
-- Chave de API do [Google AI Studio](https://aistudio.google.com/apikey)
+- Aplicativo configurado no [Spotify Developer Dashboard](https://developer.spotify.com/dashboard/)
+- Chave de API do [Google AI Studio](https://aistudio.google.com/apikey) (opcional; sem ela, o projeto usa gêneros de fallback)
 - Chave de API do [OpenWeatherMap](https://openweathermap.org/api)
-- Uma conta Spotify com acesso à reprodução para a funcionalidade de iniciar playback
+- Conta Spotify e um dispositivo compatível para tentar iniciar a reprodução
 
 ## Instalação
 
@@ -61,22 +62,23 @@ python -m pip install -r requirements.txt
 
 ## Configuração
 
-Crie um arquivo `.env` na raiz do projeto com suas próprias credenciais:
+Copie `.env.example` para `.env` e preencha as credenciais:
 
-```env
-SPOTIPY_CLIENT_ID="seu_spotify_client_id"
-SPOTIPY_CLIENT_SECRET="seu_spotify_client_secret"
-SPOTIPY_REDIRECT_URI="http://localhost:8888/callback"
-SPOTIPY_SCOPE="user-top-read,playlist-modify-public,user-modify-playback-state,user-read-playback-state,user-read-private"
-
-GEMINI_API_KEY="sua_chave_gemini"
-OPENWEATHER_API_KEY="sua_chave_openweathermap"
-CITY_QUERY="Indaiatuba,BR"
+**Windows (PowerShell):**
+```powershell
+Copy-Item .env.example .env
 ```
 
-No Spotify Developer Dashboard, configure o Redirect URI exatamente como o valor de `SPOTIPY_REDIRECT_URI`. Os escopos solicitados permitem consultar informações musicais e criar playlists; os escopos de playback são usados para tentar iniciar a reprodução.
+**Linux/macOS:**
+```bash
+cp .env.example .env
+```
 
-**Segurança:** nunca compartilhe nem faça commit do arquivo `.env`, tokens OAuth ou chaves de API. Use apenas credenciais próprias e revise as permissões solicitadas antes de autorizar o aplicativo.
+Edite o arquivo `.env` com seus próprios valores. No Spotify Developer Dashboard, configure o Redirect URI igual a `SPOTIPY_REDIRECT_URI`.
+
+O projeto solicita permissões para consultar artistas favoritos, criar playlists públicas e tentar controlar a reprodução. Revise as permissões antes de autorizar o aplicativo.
+
+**Segurança:** nunca publique o arquivo `.env`, tokens OAuth ou chaves de API. O `.gitignore` exclui arquivos de ambiente e caches locais, mas sempre confira o que será enviado antes de fazer commit.
 
 ## Executar
 
@@ -86,32 +88,45 @@ Com o ambiente virtual ativado e o arquivo `.env` configurado:
 python ClimaMusical.py
 ```
 
-Na primeira execução, o Spotipy pode abrir o navegador para autenticação com o Spotify. A reprodução automática depende de uma sessão/dispositivo Spotify compatível e das permissões disponíveis para a conta.
+Na primeira execução, o Spotipy pode abrir o navegador para autenticação com o Spotify. A reprodução automática depende de um dispositivo compatível ativo e das permissões disponíveis para a conta. Se não houver dispositivo disponível, a playlist ainda pode ter sido criada.
 
 ## Como funciona
 
-1. Busca as condições meteorológicas atuais para a cidade configurada.
-2. Consulta artistas mais ouvidos e deriva gêneros musicais dessas informações.
-3. Envia o contexto para o Gemini, que sugere gêneros e um artista de referência.
-4. Busca faixas no Spotify e tenta selecionar uma mistura de familiaridade e descoberta.
-5. Cria uma playlist chamada `Clima Musical - [Condição]` e tenta iniciar sua reprodução.
+1. Consulta o clima atual da cidade configurada.
+2. Busca artistas mais ouvidos e deriva gêneros musicais dessas informações.
+3. Envia o contexto ao Gemini para sugerir gêneros e um artista de referência.
+4. Busca faixas nos artistas favoritos e em consultas de gênero.
+5. Seleciona faixas sem duplicatas, tentando respeitar a proporção 70/30 e o limite por artista.
+6. Cria uma playlist chamada `Clima Musical - [Condição]` e tenta iniciar sua reprodução.
 
 ## Configurações de curadoria
 
-Os parâmetros principais estão dentro de `generate_recommendations` em `ClimaMusical.py`:
+Os parâmetros principais estão no início de `ClimaMusical.py`:
 
 | Parâmetro | Finalidade | Valor padrão |
 | --- | --- | ---: |
-| `TOTAL_TRACKS` | Quantidade pretendida de faixas | 50 |
-| `KNOWN_ARTIST_PERCENT` | Proporção pretendida para artistas conhecidos | 0.7 |
-| `MAX_PER_ARTIST` | Limite de faixas por artista na seleção | 5 |
+| `TOTAL_TRACKS` | Quantidade desejada de faixas | 50 |
+| `KNOWN_ARTIST_PERCENT` | Proporção desejada de faixas dos artistas favoritos | 0.70 |
+| `MAX_PER_ARTIST` | Limite de faixas por artista principal | 5 |
+
+Se um pool não tiver candidatos suficientes, a seleção tenta preencher as vagas com faixas disponíveis no outro pool. Por isso, a proporção final pode diferir da meta.
+
+## Testes
+
+Execute os testes da lógica de curadoria com:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+Os testes não chamam as APIs externas; eles verificam a seleção, a remoção de duplicatas, o limite por artista e o comportamento com poucos candidatos.
 
 ## Limitações conhecidas
 
-- A qualidade e a quantidade das recomendações dependem das respostas das APIs externas e da disponibilidade de faixas.
-- A resposta do modelo generativo é interpretada como JSON; respostas inesperadas podem exigir tratamento adicional.
+- Os resultados dependem da disponibilidade e das respostas das APIs externas.
+- A resposta do Gemini pode falhar; nesse caso, o projeto usa gêneros alternativos.
 - A reprodução automática depende das condições e permissões da API do Spotify.
-- A regra 70/30 é uma intenção de curadoria e não uma garantia matemática na versão atual.
+- O projeto ainda é um script de linha de comando; não possui interface web ou implantação hospedada.
 
 ## Licença
 
