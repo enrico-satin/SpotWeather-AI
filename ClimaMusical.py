@@ -1,311 +1,419 @@
-import os
-from dotenv import load_dotenv
-import spotipy
-from spotipy.oauth2 import SpotifyOAuth
-import requests
-import json
-import random
+"""Gera playlists personalizadas conforme o clima e as preferências musicais."""
 
-# --- CONFIGURAÇÃO E CARREGAMENTO DE VARIÁVEIS ---
+import json
+import os
+import random
+import re
+from typing import Any
+
+import requests
+import spotipy
+from dotenv import load_dotenv
+from spotipy.exceptions import SpotifyException
+from spotipy.oauth2 import SpotifyOAuth
+
+try:
+    from google import genai
+except ImportError:  # Gemini é opcional; existe curadoria de fallback.
+    genai = None
+
+
 load_dotenv()
 
-# Credenciais do Spotify (carregadas do .env)
-CLIENT_ID = os.getenv("SPOTIPY_CLIENT_ID")
-CLIENT_SECRET = os.getenv("SPOTIPY_CLIENT_SECRET")
-REDIRECT_URI = os.getenv("SPOTIPY_REDIRECT_URI")
-SCOPE = os.getenv("SPOTIPY_SCOPE")
+WEATHER_URL = "https://api.openweathermap.org/data/2.5/weather"
+GEMINI_MODEL = "gemini-2.5-flash"
+FALLBACK_GENRES = ["pop", "rock", "hip-hop", "chill", "latin"]
 
-# Credenciais do Clima e Gemini
-WEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY")
-CITY_QUERY = os.getenv("CITY_QUERY")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-
-# --- 1. AUTENTICAÇÃO DO SPOTIFY ---
-# Garante que o usuário se autentique com o Scope Mestre necessário
-sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
-    client_id=CLIENT_ID,
-    client_secret=CLIENT_SECRET,
-    redirect_uri=REDIRECT_URI,
-    scope=SCOPE,
-    show_dialog=True
-))
-user_id = sp.current_user()['id']
-print(f"✅ Autenticação Spotify bem-sucedida! Usuário: {user_id}")
-print("-" * 50)
+TOTAL_TRACKS = 50
+KNOWN_ARTIST_PERCENT = 0.70
+MAX_PER_ARTIST = 5
 
 
-# --- 2. FUNÇÃO DE CLIMA ---
-WEATHER_URL = "http://api.openweathermap.org/data/2.5/weather"
+def get_current_weather() -> tuple[str | None, float | None]:
+    """Retorna a condição principal e a temperatura atual da cidade configurada."""
+    api_key = os.getenv("OPENWEATHER_API_KEY")
+    city_query = os.getenv("CITY_QUERY")
 
-def get_current_weather():
-    """Busca os dados de clima atual para a cidade definida no .env."""
-    
-    params = {
-        'q': CITY_QUERY,
-        'appid': WEATHER_API_KEY,
-        'units': 'metric',
-        'lang': 'pt'
-    }
+    if not api_key or not city_query:
+        print("❌ Configure OPENWEATHER_API_KEY e CITY_QUERY no arquivo .env.")
+        return None, None
 
     try:
-        response = requests.get(WEATHER_URL, params=params)
-        response.raise_for_status() 
+        response = requests.get(
+            WEATHER_URL,
+            params={
+                "q": city_query,
+                "appid": api_key,
+                "units": "metric",
+                "lang": "pt",
+            },
+            timeout=10,
+        )
+        response.raise_for_status()
         data = response.json()
-        
-        weather_main = data['weather'][0]['main'].lower()
-        temp_celsius = data['main']['temp']
-        description = data['weather'][0]['description']
+        weather = data["weather"][0]
+        temperature = float(data["main"]["temp"])
+        condition = str(weather["main"]).lower()
 
-        print(f"🌎 Clima em {CITY_QUERY}: {description} ({temp_celsius}°C)")
-        return weather_main, temp_celsius
-
-    except requests.exceptions.RequestException as e:
-        print(f"❌ Erro ao buscar dados de clima: {e}.")
+        print(
+            f"🌎 Clima em {city_query}: "
+            f"{weather.get('description', condition)} ({temperature:.1f}°C)"
+        )
+        return condition, temperature
+    except (requests.RequestException, ValueError, KeyError, IndexError, TypeError) as exc:
+        print(f"❌ Não foi possível consultar o clima: {exc}")
         return None, None
 
 
-# --- 3. INTEGRAÇÃO GEMINI (O Curador Musical Pessoal) ---
-try:
-    from google import genai
-except ImportError:
-    genai = None
-
-def get_gemini_recommendations(clima_principal, temperatura, top_genres_names, top_artists_names):
-    """Solicita a sugestão de Gêneros e Artistas ao Gemini em formato JSON."""
-    
-    if not genai or not GEMINI_API_KEY:
+def get_gemini_recommendations(
+    condition: str,
+    temperature: float,
+    top_genres: list[str],
+    top_artists: list[str],
+) -> dict[str, Any] | None:
+    """Pede ao Gemini gêneros e um artista de referência em JSON estruturado."""
+    api_key = os.getenv("GEMINI_API_KEY")
+    if genai is None or not api_key:
+        print("ℹ️ Gemini indisponível ou sem chave; será usada a curadoria alternativa.")
         return None
+
+    prompt = f"""
+Você é um curador musical. Sugira gêneros de busca do Spotify e um artista
+de referência que combinem com o clima e respeitem o gosto musical informado.
+
+Clima atual: {condition}, {temperature:.1f}°C.
+Gêneros favoritos: {", ".join(top_genres) or "não disponíveis"}.
+Artistas favoritos: {", ".join(top_artists) or "não disponíveis"}.
+
+Retorne um objeto JSON com:
+- "generos": uma lista de até cinco gêneros curtos para consultas de música;
+- "artista_nome": o nome de um artista relacionado à atmosfera sugerida.
+Não inclua texto fora do JSON.
+""".strip()
 
     try:
-        client = genai.Client(api_key=GEMINI_API_KEY)
-        
-        prompt = f"""
-        Atue como um Curador Musical avançado. Sua tarefa é sugerir gêneros e artistas que combinem 
-        com a atmosfera de hoje, respeitando o gosto do usuário.
-
-        1. CLIMA ATUAL: {clima_principal}, {temperatura}°C.
-        2. TOP GÊNEROS DO USUÁRIO: {', '.join(top_genres_names)}.
-        3. TOP ARTISTAS DO USUÁRIO: {', '.join(top_artists_names)}.
-
-        TAREFA: Sugira 5 gêneros musicais (Spotify format) e 1 Artista Semente que combinem.
-        Responda APENAS com um objeto JSON. Nenhuma explicação é necessária, apenas o JSON. 
-        As chaves do JSON devem ser 'gêneros' (lista de strings) e 'artista_nome' (string).
-        """
-        
+        client = genai.Client(api_key=api_key)
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt
+            model=GEMINI_MODEL,
+            contents=prompt,
+            config={"response_mime_type": "application/json"},
         )
-        
-        response_text = response.text.strip().replace('```json', '').replace('```', '')
-        return json.loads(response_text)
+        response_text = response.text
+        if not response_text:
+            raise ValueError("O Gemini retornou uma resposta vazia.")
 
-    except Exception as e:
-        print(f"❌ Erro na chamada do Gemini: {e}")
+        result = json.loads(response_text)
+        if not isinstance(result, dict):
+            raise ValueError("A resposta do Gemini não é um objeto JSON.")
+
+        genres = result.get("generos", result.get("gêneros", []))
+        if isinstance(genres, str):
+            genres = [genres]
+        if not isinstance(genres, list):
+            genres = []
+
+        clean_genres = [
+            str(genre).strip().lower()
+            for genre in genres
+            if str(genre).strip()
+        ]
+        artist_name = str(result.get("artista_nome", "")).strip()
+
+        return {
+            "generos": clean_genres[:5],
+            "artista_nome": artist_name,
+        }
+    except Exception as exc:
+        print(f"⚠️ Falha na curadoria do Gemini; usando alternativas: {exc}")
         return None
 
 
-# --- 4. GERAÇÃO DE RECOMENDAÇÕES (CURADORIA 70/30) ---
-
-def generate_recommendations(sp, gemini_result, top_artists_ids):
-    """
-    Gera uma lista de 50 faixas aplicando a regra 70% Artistas Conhecidos / 30% Novos,
-    com limite de 5 músicas por artista, usando a busca robusta.
-    """
-    TOTAL_TRACKS = 50
-    KNOWN_ARTIST_PERCENT = 0.7
-    KNOWN_TRACKS_COUNT = int(TOTAL_TRACKS * KNOWN_ARTIST_PERCENT) 
-    NEW_TRACKS_COUNT = TOTAL_TRACKS - KNOWN_TRACKS_COUNT          
-    MAX_PER_ARTIST = 5
-    
-    seed_artists_list = []
-    seed_genres_list = []
-    
-    # Processa o resultado do Gemini (ou usa fallback)
-    if gemini_result and 'gêneros' in gemini_result:
-        seed_genres_list = [g.lower().replace(' ', '-') for g in gemini_result['gêneros'][:5]]
-        print(f"✨ Gêneros Sugeridos pelo Gemini: {', '.join(seed_genres_list)}")
-        
-        if 'artista_nome' in gemini_result:
-            search_result = sp.search(q=gemini_result['artista_nome'], type='artist', limit=1)
-            if search_result['artists']['items']:
-                artist_id = search_result['artists']['items'][0]['id']
-                seed_artists_list.append(artist_id)
-                print(f"🎤 Artista Semente Sugerido: {gemini_result['artista_nome']}")
-    
-    if not seed_genres_list:
-         seed_genres_list = random.sample(['pop', 'rock', 'hip-hop', 'chill', 'latin'], 5)
+def _track_key(track: dict[str, Any]) -> str | None:
+    """Retorna um identificador estável para evitar faixas duplicadas."""
+    return track.get("id") or track.get("uri")
 
 
-    # --- A. GERAÇÃO DO POOL CONHECIDO (70% - Dos Top Artistas) ---
-    known_pool_uris = []
-    
-    # Garante que sempre terá artistas para amostrar (Gemini ou Top do usuário)
-    artists_to_sample = seed_artists_list + random.sample(top_artists_ids, min(5, len(top_artists_ids)))
-    
-    for artist_id in artists_to_sample:
-        # Busca álbuns/singles do artista e pega 3 músicas de cada
-        albums = sp.artist_albums(artist_id, album_type='album,single', country='BR', limit=2)['items']
+def _primary_artist_id(track: dict[str, Any]) -> str | None:
+    artists = track.get("artists") or []
+    if not artists or not isinstance(artists[0], dict):
+        return None
+    return artists[0].get("id")
+
+
+def curate_track_candidates(
+    known_pool: list[dict[str, Any]],
+    discovery_pool: list[dict[str, Any]],
+    total_tracks: int = TOTAL_TRACKS,
+    known_ratio: float = KNOWN_ARTIST_PERCENT,
+    max_per_artist: int = MAX_PER_ARTIST,
+) -> list[dict[str, Any]]:
+    """Seleciona faixas conhecidas e de descoberta, sem duplicatas e limitando artistas."""
+    if total_tracks <= 0 or max_per_artist <= 0:
+        return []
+    known_ratio = min(max(known_ratio, 0.0), 1.0)
+    known_target = round(total_tracks * known_ratio)
+
+    known = list(known_pool)
+    discovery = list(discovery_pool)
+    random.shuffle(known)
+    random.shuffle(discovery)
+
+    selected: list[dict[str, Any]] = []
+    selected_keys: set[str] = set()
+    artist_counts: dict[str, int] = {}
+
+    def add_from(pool: list[dict[str, Any]], target: int | None = None) -> None:
+        added = 0
+        for track in pool:
+            if len(selected) >= total_tracks or (target is not None and added >= target):
+                break
+            key = _track_key(track)
+            artist_id = _primary_artist_id(track)
+            if not key or not artist_id or key in selected_keys:
+                continue
+            if artist_counts.get(artist_id, 0) >= max_per_artist:
+                continue
+
+            selected.append(track)
+            selected_keys.add(key)
+            artist_counts[artist_id] = artist_counts.get(artist_id, 0) + 1
+            added += 1
+
+    # Tenta cumprir cada quota de forma independente antes de preencher vagas restantes.
+    add_from(known, known_target)
+    add_from(discovery, total_tracks - known_target)
+
+    # Se um dos pools for insuficiente, aproveita as faixas restantes do outro.
+    if len(selected) < total_tracks:
+        add_from(known)
+    if len(selected) < total_tracks:
+        add_from(discovery)
+
+    return selected
+
+
+def _get_artist_tracks(sp: spotipy.Spotify, artist_id: str) -> list[dict[str, Any]]:
+    """Busca faixas de álbuns/singles de um artista, isolando falhas por artista."""
+    tracks: list[dict[str, Any]] = []
+    try:
+        albums = sp.artist_albums(
+            artist_id,
+            album_type="album,single",
+            country="BR",
+            limit=5,
+        ).get("items", [])
         for album in albums:
-             top_tracks = sp.album_tracks(album['id'], limit=3)['items']
-             known_pool_uris.extend([t['uri'] for t in top_tracks if t['id']])
-             
-    # Remove duplicatas
-    known_pool_uris = list(set(known_pool_uris)) 
+            try:
+                album_tracks = sp.album_tracks(album["id"], limit=50).get("items", [])
+                tracks.extend(
+                    track for track in album_tracks
+                    if track and track.get("id") and track.get("uri")
+                )
+            except SpotifyException as exc:
+                print(f"⚠️ Não foi possível ler faixas de um álbum: {exc}")
+    except SpotifyException as exc:
+        print(f"⚠️ Não foi possível consultar um artista ({artist_id}): {exc}")
+    return tracks
 
 
-    # --- B. GERAÇÃO DO POOL (30% - De Busca por Gêneros) ---
-    new_pool_uris = []
-    
-    if seed_genres_list:
-        # Usa um gênero aleatório do Gemini ou do Fallback
-        query_genre = random.choice(seed_genres_list)
-        query = f"genre:\"{query_genre}\""
-        
-        # Pega mais faixas que o necessário para garantir a variedade
-        search_results = sp.search(q=query, type='track', limit=50)['tracks']['items']
-        new_pool_uris.extend([t['uri'] for t in search_results])
-    
-    new_pool_uris = list(set(new_pool_uris))
+def generate_recommendations(
+    sp: spotipy.Spotify,
+    gemini_result: dict[str, Any] | None,
+    top_artists_ids: list[str],
+) -> list[str]:
+    """Gera URIs para uma playlist, tentando manter a proporção 70/30."""
+    known_ids = list(dict.fromkeys(top_artists_ids))
+    known_pool: list[dict[str, Any]] = []
 
+    # As faixas deste grupo vêm dos artistas mais ouvidos pelo usuário.
+    artists_to_sample = random.sample(known_ids, min(5, len(known_ids)))
+    for artist_id in artists_to_sample:
+        known_pool.extend(_get_artist_tracks(sp, artist_id))
 
-    # --- C. CURADORIA FINAL (APLICANDO AS REGRAS 70/30 e LIMITE POR ARTISTA) ---
-    final_uris = []
-    artist_counts = {}
-    
-    # Prepara a lista total para curadoria
-    tracks_to_curate = []
-    random.shuffle(known_pool_uris)
-    random.shuffle(new_pool_uris)
-    
-    # 1. Combina 70% Conhecido + 30% Novo
-    # Alterna entre os pools para garantir a distribuição
-    for i in range(TOTAL_TRACKS * 2):
-        if i < KNOWN_TRACKS_COUNT and known_pool_uris:
-            tracks_to_curate.append(known_pool_uris.pop())
-        elif i < NEW_TRACKS_COUNT and new_pool_uris:
-             tracks_to_curate.append(new_pool_uris.pop())
-        elif known_pool_uris:
-             tracks_to_curate.append(known_pool_uris.pop())
-        elif new_pool_uris:
-             tracks_to_curate.append(new_pool_uris.pop())
+    known_pool = list({
+        _track_key(track): track
+        for track in known_pool
+        if _track_key(track)
+    }.values())
 
+    genres = []
+    if gemini_result:
+        raw_genres = gemini_result.get("generos", gemini_result.get("gêneros", []))
+        if isinstance(raw_genres, str):
+            raw_genres = [raw_genres]
+        if isinstance(raw_genres, list):
+            genres = [str(genre).strip().lower() for genre in raw_genres if str(genre).strip()]
+    genres = list(dict.fromkeys(genres))[:5] or FALLBACK_GENRES
 
-    # 2. Mapeia e Aplica a Regra do Limite de 5
-    # Tenta obter os dados das faixas em lotes
-    if not tracks_to_curate:
-        print("❌ Não foi possível gerar um pool de faixas para curadoria.")
+    discovery_pool: list[dict[str, Any]] = []
+    seen_discovery: set[str] = set()
+    known_keys = {_track_key(track) for track in known_pool}
+
+    # Consultar mais de um gênero melhora a chance de obter candidatos diversos.
+    for genre in genres:
+        safe_genre = re.sub(r'["\\]', " ", genre).strip()
+        if not safe_genre:
+            continue
+        try:
+            result = sp.search(q=f'genre:"{safe_genre}"', type="track", limit=50)
+            tracks = result.get("tracks", {}).get("items", [])
+            for track in tracks:
+                key = _track_key(track) if track else None
+                artist_id = _primary_artist_id(track) if track else None
+                if (
+                    key
+                    and track.get("uri")
+                    and artist_id
+                    and key not in known_keys
+                    and key not in seen_discovery
+                    and artist_id not in known_ids
+                ):
+                    discovery_pool.append(track)
+                    seen_discovery.add(key)
+        except SpotifyException as exc:
+            print(f"⚠️ A busca pelo gênero '{genre}' falhou: {exc}")
+
+    if not known_pool and not discovery_pool:
+        print("❌ Nenhuma faixa foi encontrada para montar a playlist.")
         return []
 
-    # O Spotipy.tracks() aceita até 50 URIs por vez
-    for i in range(0, len(tracks_to_curate), 50):
-        batch = tracks_to_curate[i:i + 50]
-        tracks_data = sp.tracks(batch)['tracks']
-        
-        for track in tracks_data:
-            if not track or not track['artists']: continue
-            artist_id = track['artists'][0]['id']
-            
-            # Aplica a regra do limite de 5 por artista
-            if artist_counts.get(artist_id, 0) < MAX_PER_ARTIST:
-                final_uris.append(track['uri'])
-                artist_counts[artist_id] = artist_counts.get(artist_id, 0) + 1
-                
-            # Se a lista final estiver completa, pare
-            if len(final_uris) >= TOTAL_TRACKS:
-                break
-        
-        if len(final_uris) >= TOTAL_TRACKS:
-            break
+    selected = curate_track_candidates(known_pool, discovery_pool)
+    track_uris = [track["uri"] for track in selected if track.get("uri")]
 
-            
-    print(f"\n✅ Total de {len(final_uris)} músicas curadas (Regra 70/30 aplicada).")
-    return final_uris
+    print(
+        f"🎶 Faixas selecionadas: {len(track_uris)} "
+        f"(alvo: {TOTAL_TRACKS}; artistas conhecidos: até {round(TOTAL_TRACKS * KNOWN_ARTIST_PERCENT)}, "
+        f"descoberta: até {TOTAL_TRACKS - round(TOTAL_TRACKS * KNOWN_ARTIST_PERCENT)})."
+    )
+    if len(track_uris) < TOTAL_TRACKS:
+        print("ℹ️ A playlist terá menos faixas que o alvo porque os resultados disponíveis foram limitados.")
+    return track_uris
 
 
-# --- 5. AUTOMACAO DE PLAYLIST E REPRODUCAO ---
-
-def create_and_populate_playlist(sp, user_id, track_uris, clima_principal):
-    """Cria a playlist, adiciona as faixas e inicia a reprodução."""
-    
-    playlist_name = f"Clima Musical - {clima_principal.capitalize()}"
-    
-    # 1. Cria a nova playlist
-    print(f"\n🎧 Criando/Atualizando playlist: {playlist_name}")
-    try:
-        new_playlist = sp.user_playlist_create(
-            user=user_id, 
-            name=playlist_name, 
-            public=True, 
-            description=f"Curadoria 70/30 gerada por Gemini e Spotipy para o clima: {clima_principal}."
-        )
-        playlist_id = new_playlist['id']
-
-        # 2. Adiciona as músicas
-        if track_uris:
-            sp.playlist_add_items(playlist_id, track_uris)
-            print(f"✅ {len(track_uris)} faixas adicionadas à playlist.")
-        
-        # 3. Inicia a reprodução (Contexto URI)
-        sp.start_playback(context_uri=new_playlist['uri']) 
-        print("▶️ Reprodução iniciada! Confira seu Spotify.")
-        
-    except Exception as e:
-        print(f"❌ Erro ao criar/tocar playlist: {e}")
-
-
-# --- FUNÇÃO PRINCIPAL ---
-
-def main():
-    print(f"Iniciando Mago Musical (Powered by Gemini)...")
-    
-    # 1. Obter o Clima
-    clima_principal, temperatura = get_current_weather()
-    
-    if not clima_principal:
+def create_and_populate_playlist(
+    sp: spotipy.Spotify,
+    user_id: str,
+    track_uris: list[str],
+    condition: str,
+) -> None:
+    """Cria uma playlist pública, adiciona as faixas e tenta iniciar a reprodução."""
+    if not track_uris:
+        print("❌ Não há faixas para adicionar à playlist.")
         return
 
-    # 2. Coletar Gosto Pessoal
+    playlist_name = f"Clima Musical - {condition.capitalize()}"
     try:
-        # Coleta os 10 artistas mais ouvidos e seus IDs
-        top_artists_data = sp.current_user_top_artists(limit=10, time_range='medium_term')
-        top_artists_names = [a['name'] for a in top_artists_data['items']]
-        top_artists_ids = [a['id'] for a in top_artists_data['items']]
-        
-        # Coleta os 5 gêneros mais ouvidos (derivado dos artistas)
-        all_genres = set()
-        for artist in top_artists_data['items']:
-            all_genres.update(artist['genres'])
-        top_genres_names = list(all_genres)[:5]
+        playlist = sp.user_playlist_create(
+            user=user_id,
+            name=playlist_name,
+            public=True,
+            description=f"Playlist curada com base no clima: {condition}.",
+        )
+        playlist_id = playlist["id"]
 
-        print(f"🎵 Gosto Musical Coletado: {', '.join(top_artists_names[:3])}...")
+        # A API do Spotify aceita no máximo 100 faixas por chamada.
+        for start in range(0, len(track_uris), 100):
+            sp.playlist_add_items(playlist_id, track_uris[start:start + 100])
+        print(f"✅ Playlist criada com {len(track_uris)} faixas: {playlist_name}")
 
-    except Exception as e:
-        print(f"❌ Erro ao buscar dados pessoais: {e}. Usando dados de fallback.")
-        top_artists_names = ["rock alternativo", "pop dos anos 80"]
-        top_genres_names = ['pop', 'rock']
-        top_artists_ids = []
+        try:
+            sp.start_playback(context_uri=playlist["uri"])
+            print("▶️ Solicitação de reprodução enviada ao Spotify.")
+        except SpotifyException as exc:
+            print(
+                "ℹ️ A playlist foi criada, mas não foi possível iniciar a reprodução. "
+                f"Confira se há um dispositivo Spotify ativo e permissões disponíveis. Detalhe: {exc}"
+            )
+    except SpotifyException as exc:
+        print(f"❌ Não foi possível criar ou preencher a playlist: {exc}")
 
-        
-    # 3. Chamar o Gemini (Curador)
-    gemini_result = get_gemini_recommendations(
-        clima_principal, 
-        temperatura, 
-        top_genres_names,    
-        top_artists_names    
+
+def _validate_spotify_config() -> tuple[str, str, str, str] | None:
+    """Valida credenciais mínimas antes de iniciar o fluxo OAuth."""
+    client_id = os.getenv("SPOTIPY_CLIENT_ID")
+    client_secret = os.getenv("SPOTIPY_CLIENT_SECRET")
+    redirect_uri = os.getenv("SPOTIPY_REDIRECT_URI", "http://localhost:8888/callback")
+    scope = os.getenv(
+        "SPOTIPY_SCOPE",
+        "user-top-read,playlist-modify-public,user-modify-playback-state,"
+        "user-read-playback-state,user-read-private",
     )
-    
-    # 4. Gerar Recomendações no Spotify
-    # A função de recomendação agora usa o resultado do Gemini e o ID dos seus artistas
-    track_uris = generate_recommendations(sp, gemini_result, top_artists_ids)
 
-    # 5. Criar e Tocar a Playlist
-    if track_uris:
-        create_and_populate_playlist(sp, user_id, track_uris, clima_principal)
-    else:
-        print("Nenhuma música encontrada para criar a playlist.")
+    missing = [
+        name for name, value in (
+            ("SPOTIPY_CLIENT_ID", client_id),
+            ("SPOTIPY_CLIENT_SECRET", client_secret),
+        )
+        if not value
+    ]
+    if missing:
+        print(f"❌ Configure estas variáveis no arquivo .env: {', '.join(missing)}")
+        return None
+    return client_id, client_secret, redirect_uri, scope
+
+
+def main() -> None:
+    print("☁️🎶 Iniciando SpotWeather-AI...")
+
+    spotify_config = _validate_spotify_config()
+    if not spotify_config:
+        return
+
+    client_id, client_secret, redirect_uri, scope = spotify_config
+    try:
+        sp = spotipy.Spotify(
+            auth_manager=SpotifyOAuth(
+                client_id=client_id,
+                client_secret=client_secret,
+                redirect_uri=redirect_uri,
+                scope=scope,
+                show_dialog=True,
+            ),
+            requests_timeout=15,
+            retries=2,
+        )
+        user_id = sp.current_user()["id"]
+        print("✅ Autenticação Spotify concluída.")
+    except (SpotifyException, KeyError, ValueError) as exc:
+        print(f"❌ Falha na autenticação com o Spotify: {exc}")
+        return
+
+    condition, temperature = get_current_weather()
+    if condition is None or temperature is None:
+        return
+
+    try:
+        top_artists_data = sp.current_user_top_artists(
+            limit=10,
+            time_range="medium_term",
+        )
+        top_artists = top_artists_data.get("items", [])
+        top_artists_names = [artist["name"] for artist in top_artists if artist.get("name")]
+        top_artists_ids = [artist["id"] for artist in top_artists if artist.get("id")]
+        all_genres = {
+            genre
+            for artist in top_artists
+            for genre in artist.get("genres", [])
+            if genre
+        }
+        top_genres = sorted(all_genres)[:5]
+        if not top_artists:
+            print("ℹ️ O Spotify não retornou artistas favoritos; usando sugestões gerais.")
+        else:
+            print(f"🎵 Artistas favoritos encontrados: {', '.join(top_artists_names[:3])}")
+    except SpotifyException as exc:
+        print(f"⚠️ Não foi possível consultar o perfil musical: {exc}")
+        top_artists_names, top_artists_ids, top_genres = [], [], []
+
+    gemini_result = get_gemini_recommendations(
+        condition,
+        temperature,
+        top_genres,
+        top_artists_names,
+    )
+    track_uris = generate_recommendations(sp, gemini_result, top_artists_ids)
+    create_and_populate_playlist(sp, user_id, track_uris, condition)
 
 
 if __name__ == "__main__":
-
     main()
