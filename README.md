@@ -1,108 +1,118 @@
-# SpotWeather-AI
-SpotWeather-AI is an intelligent Python application designed to create personalized, context-aware Spotify playlists based on real-time weather conditions.
+# SpotWeather-AI ☁️🎶
 
-# ☁️ SpotWeather-AI 🎶
+Aplicação em Python que combina condições meteorológicas, preferências musicais e IA generativa para criar uma playlist personalizada no Spotify.
 
-**Curador Musical Inteligente: Geração de Playlists no Spotify baseadas no Clima Local e no seu Gosto Pessoal, potencializado por Gemini AI.**
+O Gemini atua como curador musical: recebe o clima atual e informações sobre artistas e gêneros que o usuário costuma ouvir, sugere direções musicais e o projeto usa a API do Spotify para montar uma playlist.
 
----
+## Funcionalidades
 
-## 💡 Sobre o Projeto
+- Consulta o clima atual de uma cidade usando a API do OpenWeatherMap.
+- Consulta artistas e gêneros relacionados ao perfil musical do usuário no Spotify.
+- Usa o Gemini para sugerir gêneros e um artista de referência com base no clima e nas preferências musicais.
+- Busca faixas no Spotify e aplica regras de diversidade, incluindo um limite pretendido de músicas por artista.
+- Cria uma playlist no Spotify e tenta iniciar sua reprodução.
 
-O **SpotWeather-AI** é um sistema de recomendação de música em Python que preenche a lacuna entre as condições climáticas e o seu humor musical.
+> **Observação:** a distribuição 70/30 é a regra pretendida pelo projeto. A seleção depende dos resultados disponíveis nas APIs e pode não produzir exatamente 50 faixas nem uma proporção exata em todas as execuções.
 
-Ele utiliza a **Gemini AI** como um curador pessoal, que interpreta o clima em tempo real (ex: "Nublado") e o seu perfil de Top Artistas e Gêneros para sugerir o estilo de música perfeito para o momento. Em seguida, ele cria e inicia a reprodução de uma playlist no seu Spotify.
+## Tecnologias
 
-### Principais Funcionalidades
+- Python
+- Spotify Web API, por meio de [Spotipy](https://spotipy.readthedocs.io/)
+- Gemini API, por meio do SDK `google-genai`
+- OpenWeatherMap API
+- `requests` e `python-dotenv`
 
-* **Curadoria Contextualizada:** Gemini traduz o clima e o seu gosto em gêneros e um artista semente.
-* **Regra de Diversidade (70/30):** As playlists são curadas com **70% de faixas de artistas que você já ouve** (para familiaridade) e **30% de faixas de descoberta** (para novidade), limitando a 5 músicas por artista para máxima variedade.
-* **Automação Completa:** Cria a playlist (`Clima Musical - [Condição]`) e inicia a reprodução automaticamente.
+## Requisitos
 
----
+- Python 3.10 ou superior
+- Conta de desenvolvedor do Spotify e um aplicativo configurado no [Spotify Developer Dashboard](https://developer.spotify.com/dashboard/)
+- Chave de API do [Google AI Studio](https://aistudio.google.com/apikey)
+- Chave de API do [OpenWeatherMap](https://openweathermap.org/api)
+- Uma conta Spotify com acesso à reprodução para a funcionalidade de iniciar playback
 
-## 🚀 Configuração Rápida (Quick Start)
+## Instalação
 
-Para rodar o **SpotWeather-AI**, você precisa obter quatro chaves de API e configurar um ambiente Python.
+Clone este repositório:
 
-### 1. Pré-requisitos
+```bash
+git clone https://github.com/enrico-satin/SpotWeather-AI.git
+cd SpotWeather-AI
+```
 
-* Python 3.8+
-* Conta de Desenvolvedor Spotify
-* Chave de API do Gemini (Google AI Studio)
-* Chave de API do OpenWeatherMap
+Crie e ative um ambiente virtual:
 
-### 2. Instalação do Projeto
+**Windows (PowerShell):**
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
 
-1.  **Clone o repositório:**
-    ```bash
-    git clone [https://github.com/SeuNome/SpotWeather-AI.git](https://github.com/SeuNome/SpotWeather-AI.git)
-    cd SpotWeather-AI
-    ```
+**Linux/macOS:**
+```bash
+python -m venv .venv
+source .venv/bin/activate
+```
 
-2.  **Crie e ative um ambiente virtual (recomendado):**
-    ```bash
-    python -m venv venv
-    source venv/bin/activate  # No Windows, use: venv\Scripts\activate
-    ```
+Instale as dependências:
 
-3.  **Instale as dependências:**
-    ```bash
-    pip install -r requirements.txt
-    # O arquivo requirements.txt deve listar: spotipy, python-dotenv, requests, google-genai
-    ```
+```bash
+python -m pip install -r requirements.txt
+```
 
----
+## Configuração
 
-## 🔑 Configuração das APIs e Chaves Secretas
-
-📄 Conteúdo do Arquivo .env (Configuração).
-
-Crie um arquivo chamado .env na pasta raiz do seu projeto e cole o seguinte conteúdo, substituindo os valores entre aspas pelo seu respectivo token ou chave.
-
-### A. Chaves do Spotify
-
-1.  Vá para o [Spotify Developer Dashboard](https://developer.spotify.com/dashboard/).
-2.  Crie um novo aplicativo e obtenha seu **`Client ID`** e **`Client Secret`**.
-3.  **Configuração de Redirect URI:** No seu aplicativo Spotify, clique em **Edit Settings** e adicione o seguinte URI à lista de **Redirect URIs**:
-    `http://localhost:8888/callback`
-4.  **Definição dos Scopes:** O projeto requer o acesso à leitura do seu histórico e controle de playback. Use a seguinte lista de `SCOPE`:
-    `user-top-read,playlist-modify-public,user-modify-playback-state,user-read-playback-state,user-read-private`
-
-### B. Chave do Gemini (Google AI)
-
-1.  Obtenha sua chave de API no [Google AI Studio](https://ai.google.dev/gemini-api/docs/api-key).
-
-### C. Chave do Clima (OpenWeatherMap)
-
-1.  Crie uma conta no [OpenWeatherMap](https://openweathermap.org/) e gere uma chave de API.
-
-### 📄 Seu arquivo `.env` deve ser assim:
+Crie um arquivo `.env` na raiz do projeto com suas próprias credenciais:
 
 ```env
-# --- SPOTIFY ---
-SPOTIPY_CLIENT_ID="SUA_SPOTIFY_CLIENT_ID"
-SPOTIPY_CLIENT_SECRET="SUA_SPOTIFY_CLIENT_SECRET"
+SPOTIPY_CLIENT_ID="seu_spotify_client_id"
+SPOTIPY_CLIENT_SECRET="seu_spotify_client_secret"
 SPOTIPY_REDIRECT_URI="http://localhost:8888/callback"
 SPOTIPY_SCOPE="user-top-read,playlist-modify-public,user-modify-playback-state,user-read-playback-state,user-read-private"
 
-# --- GEMINI AI ---
-GEMINI_API_KEY="SUA_GEMINI_API_KEY"
-
-# --- OPENWEATHERMAP ---
-OPENWEATHER_API_KEY="SUA_OPENWEATHER_API_KEY"
-CITY_QUERY="Nome da sua cidade,BR"  # Ex: "Sao Paulo,BR"
-
+GEMINI_API_KEY="sua_chave_gemini"
+OPENWEATHER_API_KEY="sua_chave_openweathermap"
+CITY_QUERY="Indaiatuba,BR"
 ```
 
-### 🛠️ Modificações e Customização
+No Spotify Developer Dashboard, configure o Redirect URI exatamente como o valor de `SPOTIPY_REDIRECT_URI`. Os escopos solicitados permitem consultar informações musicais e criar playlists; os escopos de playback são usados para tentar iniciar a reprodução.
 
-Você pode personalizar o funcionamento do curador modificando as variáveis definidas no início da função **`generate_recommendations`** dentro do arquivo `ClimaMusical.py`.
+**Segurança:** nunca compartilhe nem faça commit do arquivo `.env`, tokens OAuth ou chaves de API. Use apenas credenciais próprias e revise as permissões solicitadas antes de autorizar o aplicativo.
 
-Ajuste estes parâmetros para alterar o tamanho da playlist e a distribuição entre músicas conhecidas e descobertas.
+## Executar
 
-| Variável | O que controla? | Padrão |
-| :--- | :--- | :--- |
-| **`TOTAL_TRACKS`** | Quantidade total de músicas na playlist. | `50` |
-| **`KNOWN_ARTIST_PERCENT`** | Proporção de faixas de artistas que você já ouve. Controla a regra **70/30** (0.7 = 70%). | `0.7` (70%) |
-| **`MAX_PER_ARTIST`** | Limite máximo de músicas de um mesmo artista para garantir a diversidade. | `5` |
+Com o ambiente virtual ativado e o arquivo `.env` configurado:
+
+```bash
+python ClimaMusical.py
+```
+
+Na primeira execução, o Spotipy pode abrir o navegador para autenticação com o Spotify. A reprodução automática depende de uma sessão/dispositivo Spotify compatível e das permissões disponíveis para a conta.
+
+## Como funciona
+
+1. Busca as condições meteorológicas atuais para a cidade configurada.
+2. Consulta artistas mais ouvidos e deriva gêneros musicais dessas informações.
+3. Envia o contexto para o Gemini, que sugere gêneros e um artista de referência.
+4. Busca faixas no Spotify e tenta selecionar uma mistura de familiaridade e descoberta.
+5. Cria uma playlist chamada `Clima Musical - [Condição]` e tenta iniciar sua reprodução.
+
+## Configurações de curadoria
+
+Os parâmetros principais estão dentro de `generate_recommendations` em `ClimaMusical.py`:
+
+| Parâmetro | Finalidade | Valor padrão |
+| --- | --- | ---: |
+| `TOTAL_TRACKS` | Quantidade pretendida de faixas | 50 |
+| `KNOWN_ARTIST_PERCENT` | Proporção pretendida para artistas conhecidos | 0.7 |
+| `MAX_PER_ARTIST` | Limite de faixas por artista na seleção | 5 |
+
+## Limitações conhecidas
+
+- A qualidade e a quantidade das recomendações dependem das respostas das APIs externas e da disponibilidade de faixas.
+- A resposta do modelo generativo é interpretada como JSON; respostas inesperadas podem exigir tratamento adicional.
+- A reprodução automática depende das condições e permissões da API do Spotify.
+- A regra 70/30 é uma intenção de curadoria e não uma garantia matemática na versão atual.
+
+## Licença
+
+Este projeto está disponibilizado sob a licença MIT. Consulte o arquivo [LICENSE](LICENSE).
